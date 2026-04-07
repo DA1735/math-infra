@@ -6,7 +6,14 @@
 
 ```mermaid
 graph TD
-    subgraph "オンプレミス・サーバー (Single Host / Docker Compose)"
+    subgraph "既存インフラ (継続利用)"
+        DNS[DNS Server]
+        DHCP[DHCP Server]
+        RAD[RADIUS Server]
+        EF[EFEREC]
+    end
+
+    subgraph "オンプレミス・サーバー (新規 Docker 基盤)"
         direction TB
         AD[Windows Server 2025 AD<br/>Master ID Store]
         
@@ -16,14 +23,12 @@ graph TD
             Mailcow[Mailcow Suite]
             Auth[Authentik]
             Sync[ad-to-mailcow]
-            LANSvc[RADIUS / DHCP]
         end
         
         NPM --> Nextcloud
         NPM --> Mailcow
         NPM --> Auth
         Auth -.-> AD
-        LANSvc -.-> AD
         Sync -- "Internal API" --> Mailcow
         AD -- "ID Sync" --> Sync
     end
