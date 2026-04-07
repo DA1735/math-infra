@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数学科インフラ 新構成図</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#f0f9ff',
+                primaryTextColor: '#1e293b',
+                primaryBorderColor: '#0ea5e9',
+                lineColor: '#64748b',
+                secondaryColor: '#f8fafc',
+                tertiaryColor: '#fff'
+            },
+            flowchart: {
+                curve: 'basis'
+            }
+        });
+    </script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 text-gray-800 p-8">
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 border-b pb-4">
+            <h1 class="text-3xl font-bold text-gray-900">数学科インフラ 完全オンプレミス統合構成 (v1.6)</h1>
+            <p class="text-gray-600 mt-2">レイアウト最適化・コンテナ間通信・Python同期ロジック 詳細化モデル</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+            <pre class="mermaid">
+                flowchart TD
+                    %% スタイルの定義
+                    classDef users fill:#fef3c7,stroke:#d97706,stroke-width:2px;
+                    classDef network fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
+                    classDef boundary fill:#fce7f3,stroke:#db2777,stroke-width:2px;
+                    classDef windows fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;
+                    classDef docker fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
+                    classDef script fill:#ffedd5,stroke:#f97316,stroke-width:2px;
+                    classDef device fill:#f1f5f9,stroke:#475569,stroke-width:2px;
+
+                    %% --- 配置の強制（上段） ---
+                    subgraph Users ["エンドユーザー & デバイス"]
+                        direction TB
+                        Mobile["スマホ・ノートPC<br/>(Wi-Fi認証)"]:::users
+                        LabPC["研究室PC<br/>(802.1X認証)"]:::users
+                        Printer["学科プリンター群<br/>(MAC認証/MAB)"]:::device
+                    end
+
+                    subgraph Campus ["全学NW / 外部"]
+                        direction TB
+                        Internet(("インターネット"))
+                        ExtDNS["大学ITセンターDNS<br/>(外部名前解決 / NTP)"]:::network
+                        SSID_MATH["SSID: CHUO-MATH<br/>(全学Aruba)"]:::network
+                    end
+
+                    %% 横並びのヒント
+                    Users ~~~ Campus
+
+                    %% --- 配置の強制（中段） ---
+                    subgraph Boundary ["数学科ネットワーク境界"]
+                        direction TB
+                        FPR1140["Cisco FPR1140-ASA<br/>(境界FW / VPN)"]:::boundary
+                        L3Switch["コア L3 スイッチ<br/>(VLAN制御 / 802.1X / mDNS)"]:::boundary
+                    end
+
+                    %% --- 配置の強制（下段） ---
+                    subgraph OnPremise ["学内統合サーバー (SR250 V3)"]
+                        subgraph CoreAD ["Windows Server 2025 基盤"]
+                            Win_Infra["コアサービス<br/>(DNS / DHCP / RADIUS)"]:::windows
+                            Win2025_AD["Master ID Store<br/>(AD / LDAPS)"]:::windows
+                        end
+
+                        subgraph DockerInfra ["Linux 統合基盤 (Docker Compose)"]
+                            NPM["Nginx Proxy Manager<br/>(リバースプロキシ / SSL)"]:::docker
+                            Mailcow["Mailcow<br/>(メールサーバー Suite)"]:::docker
+                            Auth["Authentik<br/>(SSO / MFAゲートウェイ)"]:::docker
+                            Nextcloud["Nextcloud<br/>(ファイル共有)"]:::docker
+                            SyncScript["ad-to-mailcow<br/>(自作Python同期ロジック)"]:::script
+                        end
+                    end
+
+                    %% ==========================================
+                    %% 通信の流れ（上から下へ流れるように記述）
+                    %% ==========================================
+
+                    %% 1. ユーザーから境界・全学NWへ (Top -> Middle)
+                    Mobile --> |"WPA Enterprise"| SSID_MATH
+                    LabPC --> |"802.1X 認証・通信"| L3Switch
+                    Printer --> |"MAC 認証 (MAB)"| L3Switch
+
+                    %% 2. 外部・全学NWと境界の通信 (Top/Middle)
+                    Internet <--> |"Web/Mail 通信"| FPR1140
+                    FPR1140 <--> L3Switch
+                    
+                    %% 内部インフラから外部DNSへの参照（上向きへの線をきれいに逃がす）
+                    Win_Infra -.-> |"外部ドメイン転送"| ExtDNS
+
+                    %% 3. 境界から内部インフラへのリクエスト (Middle -> Bottom)
+                    SSID_MATH -.-> |"RADIUS 認証要求"| Win_Infra
+                    L3Switch -.-> |"RADIUS/DHCP 要求"| Win_Infra
+                    
+                    %% 4. アプリケーション通信 (Middle -> Bottom)
+                    L3Switch ==> |"HTTP/HTTPS (80/443)"| NPM
+                    L3Switch ==> |"SMTP/IMAP 等 (25/587/993)"| Mailcow
+                    
+                    %% 5. Linux統合基盤内部のリバースプロキシ (NPMの振り分け)
+                    NPM --> |"認証プロキシ"<br/>proxy_pass| Auth
+                    NPM --> |"Web UI 転送"<br/>proxy_pass| Nextcloud
+                    NPM --> |"Webmail 転送"<br/>proxy_pass| Mailcow
+                    
+                    %% 6. ID参照と同期ロジック (バックエンド)
+                    Auth -.-> |"LDAPS ユーザー認証"| Win2025_AD
+                    Nextcloud -.-> |"LDAPS グループ参照"| Win2025_AD
+                    
+                    Win2025_AD -.-> |"LDAP検索 (定期監視)"| SyncScript
+                    SyncScript -.-> |"REST API 反映"| Mailcow
+            </pre>
+        </div>
+
+        <div class="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-blue-50 p-5 rounded-lg border border-blue-100">
+                <h3 class="font-bold text-blue-900 mb-2">レイアウト改善のポイント（v1.6）</h3>
+                <ul class="list-disc list-inside text-sm text-blue-800 space-y-2">
+                    <li><b>左上から右下への視線誘導:</b>
+                        エンドユーザー（起点）を左上に、インターネット等（外部）を右上に配置し、通信が「ネットワーク境界」を通って「統合サーバー」へ落ちていく自然な流れ（Top to Down）に修正しました。
+                    </li>
+                    <li><b>線の交差を削減:</b> 矢印を定義する順番を工夫することで、Mermaidの自動描画エンジンが線を交差させずに配置しやすくなりました。</li>
+                </ul>
+            </div>
+
+            <div class="bg-orange-50 p-5 rounded-lg border border-orange-100">
+                <h3 class="font-bold text-orange-900 mb-2">プレゼンや説明資料として</h3>
+                <p class="text-sm text-orange-800 mb-2">
+                    この図は、相手によって説明する「層」を分けるのに最適です。
+                </p>
+                <ul class="list-disc list-inside text-sm text-orange-800 space-y-1">
+                    <li><b>SIer（業者）向け:</b> 上段・中段の「境界」と「Win2025（RADIUS/DNS）」の繋がりに注視させます。</li>
+                    <li><b>上司・教授向け:</b> 「ユーザー」がどうやって「アプリ（Nextcloud等）」にたどり着くかの大きな流れを説明します。</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
