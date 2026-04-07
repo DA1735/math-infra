@@ -6,43 +6,40 @@
 
 ```mermaid
 graph TD
-    subgraph "学内拠点 (オンプレミスマシン - Lenovo SR250 V3)"
+    subgraph "オンプレミス・サーバー (Single Host / Docker Compose)"
         direction TB
         AD[Windows Server 2025 AD<br/>Master ID Store]
-        Nextcloud[Nextcloud<br/>Storage]
-        NPM[Nginx Proxy Manager<br/>Reverse Proxy / SSL]
-        Auth[Authentik<br/>MFA / Auth Portal]
-        RAD[FreeRADIUS / Kea DHCP<br/>Campus LAN Control]
+        
+        subgraph "Docker Network"
+            NPM[Nginx Proxy Manager]
+            Nextcloud[Nextcloud]
+            Mailcow[Mailcow Suite]
+            Auth[Authentik]
+            Sync[ad-to-mailcow]
+            LANSvc[RADIUS / DHCP]
+        end
         
         NPM --> Nextcloud
+        NPM --> Mailcow
         NPM --> Auth
         Auth -.-> AD
-        RAD -.-> AD
+        LANSvc -.-> AD
+        Sync -- "Internal API" --> Mailcow
+        AD -- "ID Sync" --> Sync
     end
 
-    subgraph "学外拠点 (さくら専用サーバ / VPS)"
-        Mailcow[Mailcow<br/>Email System]
-        SyncScript[Python Sync Script<br/>ad-to-mailcow]
+    subgraph "将来の拡張 (VPS移行先)"
+        VPS_Mail[(Mailcow Migration)]
+        style VPS_Mail stroke-dasharray: 5 5
     end
 
-    subgraph "ユーザー (利用環境)"
+    subgraph "利用者"
         User[学生/教職員]
-        PC[研究室PC / Wi-Fi]
     end
 
-    %% IDの同期フロー
-    AD -- "LDAP Sync / Webhook" --> SyncScript
-    SyncScript -- "Update API" --> Mailcow
-
-    %% アクセスフロー
-    PC -- "IEEE 802.1X Auth" --> RAD
-    User -- "Auth Request (MFA)" --> Auth
-    User -- "HTTPS (File Sync)" --> NPM
-    User -- "SMTP / IMAP / Webmail" --> Mailcow
-
-    style AD fill:#f96,stroke:#333,stroke-width:4px
-    style SyncScript fill:#ccf,stroke:#333
-    style Mailcow fill:#9cf,stroke:#333
+    User -- "Local LAN / Wi-Fi" --> LANSvc
+    User -- "HTTPS / SSL" --> NPM
+    User -- "Mail Access" --> NPM
 ```
 
 ---
